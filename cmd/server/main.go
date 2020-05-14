@@ -1,95 +1,110 @@
 package main
 
 import (
-	"io"
+	"flag"
 	"log"
 	"net/http"
+	"time"
 
-	"strconv"
-
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"golang.org/x/net/websocket"
 )
 
-// Types used in this package
 type (
-	user struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
+	Message struct {
+		Text      string
+		Timestamp time.Time `json:"timestamp"`
+		SenderID  string    `json:"senderid"`
+	}
+
+	room struct {
+		name             string
+		clients          map[string]*websocket.Conn
+		addClientChan    chan *websocket.Conn
+		removeClientChan chan *websocket.Conn
+		broadcastChan    chan Message
 	}
 )
 
-// Global variables
 var (
-	users = map[int]*user{}
-	seq   = 1
-	names = [...]string{"Alexis", "Becca", "Cindy"}
+	port = flag.String("port", "9000", "port used for ws connection")
 )
 
-//----------
-// Handlers
-//----------
-
-func createUser(c echo.Context) error {
-	u := &user{
-		ID:   seq,
-		Name: names[seq%3],
+func newRoom() *room {
+	return &room{
+		name:             "Main Room",
+		clients:          make(map[string]*websocket.Conn),
+		addClientChan:    make(chan *websocket.Conn),
+		removeClientChan: make(chan *websocket.Conn),
+		broadcastChan:    make(chan Message),
 	}
-	if err := c.Bind(u); err != nil {
-		return err
-	}
-	// Potential Race Condition
-	users[u.ID] = u
-	seq++
-
-	return c.JSON(http.StatusCreated, u)
 }
 
-func getUser(c echo.Context) error {
-	id, _ := strconv.Atoi(c.Param("id"))
-	return c.JSON(http.StatusOK, users[id])
+func (rm *room) addClient(conn *websocket.Conn) {
+	rm.clients[conn.RemoteAddr().String()] = conn
 }
 
-func updateUser(c echo.Context) error {
-	u := new(user)
-	// Will be able to set customized name later
-	if err := c.Bind(u); err != nil {
-		return err
+func (rm *room) removeClient(conn *websocket.Conn) {
+	delete(rm.clients, conn.RemoteAddr().String())
+}
+
+func (rm *room) broadcast(m Message) {
+	for _, conn := range rm.clients {
+		err := websocket.JSON.Send(conn, m)
+		if err != nil {
+			log.Println("Error in broadcasting")
+		}
 	}
-	id, _ := strconv.Atoi(c.Param("id"))
-	users[id].Name = u.Name
-	return c.JSON(http.StatusOK, users[id])
 }
 
-func deleteUser(c echo.Context) error {
-	id, _ := strconv.Atoi(c.Param("id"))
-	delete(users, id)
-	return c.NoContent(http.StatusNoContent)
+func (rm *room) run() {
+	for {
+		select {
+		case conn := <-rm.addClientChan:
+			rm.addClient(conn)
+		case conn := <-rm.removeClientChan:
+			rm.removeClient(conn)
+		case m := <-rm.broadcastChan:
+			rm.broadcast(m)
+		}
+	}
+}
+
+func handler(ws *websocket.Conn, rm *room) {
+	go rm.run()
+
+	rm.addClientChan <- ws
+	// polling
+	for {
+		var m Message
+		err := websocket.JSON.Receive(ws, &m)
+		if err != nil {
+			log.Println("Removing disconnected client")
+			rm.removeClient(ws)
+			return
+		}
+		rm.broadcastChan <- m
+	}
+}
+
+func connect(port string) error {
+	rm := newRoom()
+	// init http request multiplexor
+	mux := http.NewServeMux()
+	// routes "/" to handler
+	mux.Handle("/", websocket.Handler(func(ws *websocket.Conn) {
+		handler(ws, rm)
+	}))
+
+	s := http.Server{
+		Addr:    ":" + port,
+		Handler: mux,
+	}
+	return s.ListenAndServe()
 }
 
 func main() {
 	// Hello world, the web server
-	helloHandler := func(w http.ResponseWriter, req *http.Request) {
-		io.WriteString(w, "Hello, world!\n")
-	}
-
-	http.HandleFunc("/hello", helloHandler)
-	log.Println("Listing for requests at http://localhost:8000/hello")
-	// log.Fatal(http.ListenAndServe(":8000", nil))
-
-	e := echo.New()
-
-	// Middleware
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
-
-	// Routes
-	e.POST("/users", createUser)
-	e.GET("/users/:id", getUser)
-	e.PUT("/users/:id", updateUser)
-	e.DELETE("/users/:id", deleteUser)
-
-	// Start server
-	e.Logger.Fatal(e.Start(":1323"))
+	flag.Parse()
+	connect(*port)
 
 }
