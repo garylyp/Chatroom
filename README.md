@@ -11,6 +11,11 @@ A simple chatroom project for users to communicate via a server.
 5. The performance of the service
 6. What you learned from doing this project, and what help do you need
 
+### Introduction
+
+SimpleChat is a chatroom hosted on the webserver that provides realtime communication between members in the room. 
+
+
 ### Prerequisites
 
 What things you need to install the software and how to install them
