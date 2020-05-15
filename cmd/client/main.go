@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"log"
 	"math/rand"
@@ -13,28 +12,28 @@ import (
 )
 
 type (
-	user struct {
-		ID   int    `json:"id"`
-		Name string `json:"name"`
-	}
-
+	// Data structure of message
 	Message struct {
 		Text      string    `json:"text"`
 		Timestamp time.Time `json:"timestamp"`
 		SenderID  string    `json:"senderid"`
+		Code      string    `json:"code"`
 	}
 )
 
 var (
-	port = flag.String("port", "9000", "port used for ws connection")
+	port = "9000"
 	id   string
 )
 
-func connect() (*websocket.Conn, error) {
-	return websocket.Dial(fmt.Sprintf("ws://localhost:%s", *port), "", generatedIP())
-}
+const (
+	entryCode   = "ENTRY_OK"
+	exitCode    = "EXIT_OK"
+	defaultCode = "OK"
+	divider     = "===================="
+)
 
-// Generates a random IP to differentiate users while testing locally
+// Generates a random unique IP for client to simulate multiple clients on local machine
 func generatedIP() string {
 	var arr [4]int
 	for i := 0; i < 4; i++ {
@@ -45,48 +44,80 @@ func generatedIP() string {
 	return id
 }
 
+// Connects to the server via websocket
+func connect(port string) (*websocket.Conn, error) {
+	return websocket.Dial(fmt.Sprintf("ws://localhost:%s", port), "", generatedIP())
+}
+
+// Receives message from server
 func receive(ws *websocket.Conn) {
 	var m Message
 	for {
 		err := websocket.JSON.Receive(ws, &m)
 		if err != nil {
-			log.Println("Error receiving message: ", err.Error())
-			break
+			log.Println("You have disconnected")
+			return
 		}
-		fmt.Printf("%v [%v]: \n%v\n", m.SenderID, m.Timestamp.Format("02-01 15:04"), m.Text)
+
+		switch m.Code {
+		case entryCode:
+			// Receive assigned name from server upon successful entry
+			id = m.Text
+			fmt.Printf("Welcome, %v. To quit, enter \"/exit\"\n", id)
+			continue
+		case exitCode:
+			// Receive exit ack from server
+			return
+		default:
+			// Receive message from other chatroom users
+			fmt.Print(prettifyMsg(m))
+		}
+
 	}
-
-	// Display message
-
 }
 
+// Adds border around message content to denote a textbox
+func prettifyMsg(m Message) string {
+	return fmt.Sprintf("%v\n%v [%v]: \n%v\n%v\n",
+		divider,
+		m.SenderID,
+		m.Timestamp.Format("02-01 15:04"),
+		m.Text,
+		divider)
+}
+
+// Sends a message to the chatroom
 func send(ws *websocket.Conn) {
 	scanner := bufio.NewScanner(os.Stdin)
-
 	for scanner.Scan() {
 		text := scanner.Text()
-		if text == "" {
-			continue
-		}
 
-		m := Message{
-			Text:      text,
-			Timestamp: time.Now(),
-			SenderID:  id,
-		}
-		err := websocket.JSON.Send(ws, m)
-		if err != nil {
-			log.Println("Error sending message: ", err.Error())
-			break
+		switch text {
+		case "":
+			continue
+		case "/exit":
+			// Sends special command to exit chatroom
+			return
+		default:
+			m := Message{
+				Text:      text,
+				Timestamp: time.Now(),
+				SenderID:  id,
+				Code:      defaultCode,
+			}
+			err := websocket.JSON.Send(ws, m)
+			if err != nil {
+				log.Println("Error sending message: ", err.Error())
+				break
+			}
 		}
 	}
 }
 
 func main() {
-	flag.Parse()
 
 	// connect
-	ws, err := connect()
+	ws, err := connect(port)
 	if err != nil {
 		log.Fatal(err)
 	}
