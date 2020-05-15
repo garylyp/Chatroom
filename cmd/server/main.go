@@ -105,6 +105,7 @@ func (rm *room) initStorage() {
 // Add a new websocket connection to the server
 func (rm *room) addClient(conn *websocket.Conn) {
 	rm.clients[conn.RemoteAddr().String()] = conn
+	log.Println("New client connected:", conn.RemoteAddr().String())
 
 	// Acknowledge client's entry
 	name := rm.findUniqueName()
@@ -121,7 +122,7 @@ func (rm *room) addClient(conn *websocket.Conn) {
 
 // Removes websocket connection with client
 func (rm *room) removeClient(conn *websocket.Conn) {
-	log.Println("Client disconnected", conn.RemoteAddr().String())
+	log.Println("Client disconnected:", conn.RemoteAddr().String())
 	websocket.JSON.Send(conn, Message{Code: exitCode})
 	delete(rm.clients, conn.RemoteAddr().String())
 }
@@ -212,6 +213,7 @@ func connect(port string) error {
 		Addr:    ":" + port,
 		Handler: mux,
 	}
+	log.Println("Server running on port: ", port)
 	return s.ListenAndServe()
 }
 
