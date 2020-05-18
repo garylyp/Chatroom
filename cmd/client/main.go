@@ -86,6 +86,17 @@ func prettifyMsg(m Message) string {
 		divider)
 }
 
+func sendMsg(ws *websocket.Conn, text string, t time.Time, id string, code string) error {
+	m := Message{
+		Text:      text,
+		Timestamp: t,
+		SenderID:  id,
+		Code:      code,
+	}
+	err := websocket.JSON.Send(ws, m)
+	return err
+}
+
 // Sends a message to the chatroom
 func send(ws *websocket.Conn) {
 	scanner := bufio.NewScanner(os.Stdin)
@@ -99,13 +110,7 @@ func send(ws *websocket.Conn) {
 			// Sends special command to exit chatroom
 			return
 		default:
-			m := Message{
-				Text:      text,
-				Timestamp: time.Now(),
-				SenderID:  id,
-				Code:      defaultCode,
-			}
-			err := websocket.JSON.Send(ws, m)
+			err := sendMsg(ws, text, time.Now(), id, defaultCode)
 			if err != nil {
 				log.Println("Error sending message: ", err.Error())
 				break

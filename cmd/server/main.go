@@ -219,6 +219,9 @@ func connect(port string) error {
 
 func main() {
 
-	connect(port)
+	err := connect(port)
+	if err != nil {
+		log.Println(err.Error())
+	}
 
 }
