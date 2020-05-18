@@ -74,14 +74,18 @@ The main aspects that were tested were:
 - The underlying functionality of send and receive
 - The receive order matches the send order
 - The sent messages remain in the server and will be displayed to new users
-
-1. First create the server executable file so that it can be called by the test file
+1. Before we begin, remove the temporary storage file `data.json` so that it will not affect the output for the tests
 ```
-$simple-chat go build -o run_server.exe ./cmd/server/main.go && mv run_server.exe ./cmd
+simple-chat$ rm ./internal/storage/data.json
 ```
-2. Run the test file, which is stored in the client package.
+2. First create the server executable file so that it can be called by the test file
 ```
-$simple-chat go test ./cmd/client -v
+simple-chat$ go build -o run_server.exe ./cmd/server/main.go
+simple-chat$ mv run_server.exe ./cmd
+```
+3. Run the test file, which is stored in the client package.
+```
+simple-chat$ go test ./cmd/client -v
 ```
 
 ## Takeways
