@@ -70,11 +70,19 @@ A json file is used for storage in this application. With every new message sent
 * [Golang Websocket Library](golang.org/x/net/websocket)
 
 ## Tests
-To be updated
-```
+The main aspects that were tested were:
+- The underlying functionality of send and receive
+- The receive order matches the send order
+- The sent messages remain in the server and will be displayed to new users
 
+1. First create the server executable file so that it can be called by the test file
 ```
-
+$simple-chat go build -o run_server.exe ./cmd/server/main.go && mv run_server.exe ./cmd
+```
+2. Run the test file, which is stored in the client package.
+```
+$simple-chat go test ./cmd/client -v
+```
 
 ## Takeways
 The main takeaway I had was understanding the project structure within a Go project, as well as understanding some of the key features of the Go language, such as concurrency, channels and goroutines. However, this project may be a little too small to help me appreciate how the different packages can interact with each other.
@@ -85,5 +93,5 @@ The main takeaway I had was understanding the project structure within a Go proj
 * [Project Layout in Go](https://github.com/golang-standards/project-layout)
 * [Creating Chat Application Using Websocket](https://medium.com/@johnshenk77/create-a-simple-chat-application-in-go-using-websocket-d2cb387db836)
 * [Building websockets in Go](https://yalantis.com/blog/how-to-build-websockets-in-go/)
-
+* [Unit Testing in Go](https://medium.com/rungo/unit-testing-made-easy-in-go-25077669318)
 
