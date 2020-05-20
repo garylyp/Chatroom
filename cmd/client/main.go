@@ -12,7 +12,7 @@ import (
 )
 
 type (
-	// Data structure of message
+	// Message describes the data structure of a message object
 	Message struct {
 		Text      string    `json:"text"`
 		Timestamp time.Time `json:"timestamp"`
@@ -22,7 +22,7 @@ type (
 )
 
 var (
-	port = "9000"
+	port = "9001"
 	id   string
 )
 
