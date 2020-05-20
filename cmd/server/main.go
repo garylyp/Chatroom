@@ -87,7 +87,7 @@ func (rm *room) initStorage() {
 		}
 	} else {
 		jsonFile, err := os.Open(storageFilename)
-		defer jsonFile.Close()
+		defer jsonFile.Close() // TODO: check nil before defer
 
 		if err != nil {
 			log.Printf("Error opening file %v : %v", storageFilename, err.Error())
@@ -154,6 +154,7 @@ func (rm *room) store(m Message) {
 
 	d := &rm.data
 	// Adjust pointers in circular queue
+	// TODO: https://golang.org/pkg/container/ring/
 	if len(d.Messages) == storageSize {
 		d.Head = (d.Head + 1) % storageSize
 	}
@@ -165,11 +166,12 @@ func (rm *room) store(m Message) {
 
 // Runs the main functions of the chatroom
 func (rm *room) run() {
+	// singleton
 	for {
 		select {
 		case conn := <-rm.addClientChan:
 			rm.addClient(conn)
-		case conn := <-rm.removeClientChan:
+		case conn := <-rm.removeClientChan: // TODO: never used?
 			rm.removeClient(conn)
 		case m := <-rm.broadcastChan:
 			rm.store(m)
@@ -180,15 +182,17 @@ func (rm *room) run() {
 
 // Handles a new incoming websocket connection
 func handler(ws *websocket.Conn, rm *room) {
-	go rm.run()
+	go rm.run() // TODO: when will this goroutine exit?
 
 	rm.addClientChan <- ws
 
 	for {
 		var m Message
 		err := websocket.JSON.Receive(ws, &m)
-		if err != nil {
+		// exit
+		if m.Text == "exit" ||  err != nil {
 			rm.removeClient(ws)
+			rm.removeClientChan <- ws
 			return
 		}
 		rm.broadcastChan <- m
@@ -198,7 +202,7 @@ func handler(ws *websocket.Conn, rm *room) {
 // Connects a new room the given port number
 func connect(port string) error {
 	rm := newRoom()
-	rm.initStorage()
+	rm.initStorage() // TODO: init in new
 
 	// init http request multiplexor
 	mux := http.NewServeMux()
@@ -220,7 +224,7 @@ func connect(port string) error {
 func main() {
 
 	err := connect(port)
-	if err != nil {
+	if err != nil { // TODO: merge to one line
 		log.Println(err.Error())
 	}
 
