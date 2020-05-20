@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -55,6 +56,7 @@ var (
 )
 
 func setup() {
+	os.Remove("../data.json")
 	cmd = exec.Command("../run_server.exe")
 	cmd.Start()
 	time.Sleep(time.Second) // Allow server to setup
@@ -68,7 +70,7 @@ func TestSendAndReceive(t *testing.T) {
 
 	setup()
 
-	client1, err := connect("9000")
+	client1, err := connect(port)
 	if err != nil {
 		fmt.Println("Error during connection:", err.Error())
 		cmd.Process.Kill()
@@ -96,13 +98,13 @@ func TestMessageOrder(t *testing.T) {
 
 	setup()
 
-	client1, err := connect("9000")
+	client1, err := connect(port)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
 	defer client1.Close()
 
-	client2, err := connect("9000")
+	client2, err := connect(port)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
@@ -137,7 +139,7 @@ func TestPersistency(t *testing.T) {
 
 	setup()
 
-	client1, err := connect("9000")
+	client1, err := connect(port)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
@@ -150,7 +152,7 @@ func TestPersistency(t *testing.T) {
 	client1.Close()
 
 	// client2 connects after client1 finished sending
-	client2, err := connect("9000")
+	client2, err := connect(port)
 	if err != nil {
 		fmt.Println(err.Error())
 	}

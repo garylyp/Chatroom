@@ -14,7 +14,7 @@ import (
 )
 
 type (
-	// Data structure of message
+	// Message describes the data structure of a message object
 	Message struct {
 		Text      string    `json:"text"`
 		Timestamp time.Time `json:"timestamp"`
@@ -22,7 +22,7 @@ type (
 		Code      string    `json:"code"`
 	}
 
-	// Data structure of stored messages
+	// Storage maintains a queue of N-th most recent messages
 	Storage struct {
 		Head     int             `json:"head"`
 		Idx      int             `json:"idx"`
@@ -40,13 +40,13 @@ type (
 )
 
 var (
-	port                   = "9000"
-	ran         *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
-	storageSize            = 5
+	port        = "9001"
+	ran         = rand.New(rand.NewSource(time.Now().UnixNano()))
+	storageSize = 5
 )
 
 const (
-	storageFilename = "./internal/storage/data.json"
+	storageFilename = "./cmd/data.json"
 	entryCode       = "ENTRY_OK"
 	exitCode        = "EXIT_OK"
 	defaultCode     = "OK"
