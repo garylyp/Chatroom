@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"golang.org/x/net/websocket"
@@ -35,6 +36,7 @@ type (
 )
 
 var (
+	once        sync.Once
 	port        = "9001"
 	ran         = rand.New(rand.NewSource(time.Now().UnixNano()))
 	storageSize = 5
@@ -111,7 +113,7 @@ func (rm *room) initStorage() {
 func initRoom() *room {
 	rm := newRoom()
 	rm.initStorage()
-	go rm.run()
+	// go rm.run()
 	return rm
 }
 
@@ -126,6 +128,11 @@ func (rm *room) addClient(conn *websocket.Conn) {
 
 	// Send last n messages to client, starting from oldest
 	r := rm.Messages
+	if rm.cnt < storageSize {
+		for c := 0; c < rm.cnt; c++ {
+			r = r.Prev()
+		}
+	}
 	for c := 0; c < rm.cnt; c++ {
 		websocket.JSON.Send(conn, r.Value)
 		r = r.Next()
@@ -163,7 +170,9 @@ func (rm *room) writeToStorage(filename string) {
 	ms := make([]Message, 0)
 	r := rm.Messages
 	r.Do(func(m interface{}) {
-		ms = append(ms, m.(Message))
+		if m != nil {
+			ms = append(ms, m.(Message))
+		}
 	})
 
 	// Writes array into json file
@@ -196,7 +205,7 @@ func (rm *room) run() {
 
 // Handler for each client connection
 func handler(ws *websocket.Conn, rm *room) {
-
+	go once.Do(rm.run)
 	rm.addClientChan <- ws
 
 	var m Message
