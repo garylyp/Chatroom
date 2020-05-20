@@ -67,6 +67,7 @@ func receive(ws *websocket.Conn) {
 			continue
 		case exitCode:
 			// Receive exit ack from server
+			// Return from function call terminates goroutine
 			return
 		default:
 			// Receive message from other chatroom users
@@ -107,7 +108,6 @@ func send(ws *websocket.Conn) {
 		case "":
 			continue
 		case "/exit":
-			// Sends special command to exit chatroom
 			return
 		default:
 			err := sendMsg(ws, text, time.Now(), id, defaultCode)
