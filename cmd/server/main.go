@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/ring"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -8,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"golang.org/x/net/websocket"
@@ -22,24 +24,19 @@ type (
 		Code      string    `json:"code"`
 	}
 
-	// Storage maintains a queue of N-th most recent messages
-	Storage struct {
-		Head     int             `json:"head"`
-		Idx      int             `json:"idx"`
-		Messages map[int]Message `json:"messages"`
-	}
-
 	room struct {
 		names            map[string]int
 		clients          map[string]*websocket.Conn
 		addClientChan    chan *websocket.Conn
 		removeClientChan chan *websocket.Conn
 		broadcastChan    chan Message
-		data             Storage
+		Messages         *ring.Ring
+		cnt              int
 	}
 )
 
 var (
+	once        sync.Once
 	port        = "9001"
 	ran         = rand.New(rand.NewSource(time.Now().UnixNano()))
 	storageSize = 5
@@ -71,38 +68,56 @@ func newRoom() *room {
 		addClientChan:    make(chan *websocket.Conn),
 		removeClientChan: make(chan *websocket.Conn),
 		broadcastChan:    make(chan Message),
+		Messages:         ring.New(storageSize),
+		// Counts the actual number of elements
+		// in Messages as ring may not be full
+		cnt: 0,
+	}
+}
+
+// Reads data from json file into destination v
+func readStorage(v interface{}, fname string) {
+	jsonFile, err := os.Open(fname)
+	if err != nil {
+		log.Printf("Error opening file %v : %v", fname, err.Error())
+	}
+	defer jsonFile.Close()
+
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+
+	if err = json.Unmarshal(byteValue, v); err != nil {
+		log.Println("Error reading from storage:", err.Error())
 	}
 }
 
 // Initializes room storage data
 func (rm *room) initStorage() {
 	_, err := os.Stat(storageFilename)
-
 	if os.IsNotExist(err) {
+		// Create new file
 		os.Create(storageFilename)
-		rm.data = Storage{
-			Head:     0,
-			Idx:      0,
-			Messages: make(map[int]Message),
-		}
+
 	} else {
-		jsonFile, err := os.Open(storageFilename)
-		defer jsonFile.Close()
-
-		if err != nil {
-			log.Printf("Error opening file %v : %v", storageFilename, err.Error())
-		}
-
-		byteValue, _ := ioutil.ReadAll(jsonFile)
-
-		err = json.Unmarshal(byteValue, &rm.data)
-		if err != nil {
-			log.Println("Error reading from storage:", err.Error())
+		// Copy data from storage file to runtime
+		var storedM []Message
+		readStorage(&storedM, storageFilename)
+		for _, m := range storedM {
+			rm.Messages.Value = m
+			rm.Messages = rm.Messages.Next()
+			rm.cnt++
 		}
 	}
 }
 
-// Add a new websocket connection to the server
+// Initializes room paramters
+func initRoom() *room {
+	rm := newRoom()
+	rm.initStorage()
+	// go rm.run()
+	return rm
+}
+
+// Adds a new websocket connection to the server
 func (rm *room) addClient(conn *websocket.Conn) {
 	rm.clients[conn.RemoteAddr().String()] = conn
 	log.Println("New client connected:", conn.RemoteAddr().String())
@@ -112,65 +127,75 @@ func (rm *room) addClient(conn *websocket.Conn) {
 	websocket.JSON.Send(conn, Message{Text: name, Code: entryCode})
 
 	// Send last n messages to client, starting from oldest
-	i := rm.data.Head
-	n := len(rm.data.Messages)
-	for c := 0; c < n; c++ {
-		websocket.JSON.Send(conn, rm.data.Messages[i])
-		i = (i + 1) % n
+	r := rm.Messages
+	if rm.cnt < storageSize {
+		for c := 0; c < rm.cnt; c++ {
+			r = r.Prev()
+		}
+	}
+	for c := 0; c < rm.cnt; c++ {
+		websocket.JSON.Send(conn, r.Value)
+		r = r.Next()
 	}
 }
 
-// Removes websocket connection with client
+// Removes websocket connection from server
 func (rm *room) removeClient(conn *websocket.Conn) {
 	log.Println("Client disconnected:", conn.RemoteAddr().String())
 	websocket.JSON.Send(conn, Message{Code: exitCode})
 	delete(rm.clients, conn.RemoteAddr().String())
 }
 
-// Broadcast message m to all connected websocket clients
+// Broadcast message to all connected clients
 func (rm *room) broadcast(m Message) {
 	for _, conn := range rm.clients {
-		err := websocket.JSON.Send(conn, m)
-		if err != nil {
+		if err := websocket.JSON.Send(conn, m); err != nil {
 			log.Println("Error broadcasting")
 		}
 	}
 }
 
-func (s *Storage) writeToStorage(filename string) {
-	// Writes messages into storage file
-	file, err := json.MarshalIndent(s, "", " ")
+// Adds message m to ring data structure
+func (rm *room) store(m Message) {
+	rm.Messages.Value = m
+	rm.Messages = rm.Messages.Next()
+	if rm.cnt < rm.Messages.Len() {
+		rm.cnt++
+	}
+}
+
+// Writes to storage so that messages even after termination
+func (rm *room) writeToStorage(filename string) {
+	// Copies ring messages into an array
+	ms := make([]Message, 0)
+	r := rm.Messages
+	r.Do(func(m interface{}) {
+		if m != nil {
+			ms = append(ms, m.(Message))
+		}
+	})
+
+	// Writes array into json file
+	file, err := json.MarshalIndent(ms, "", " ")
 	if err != nil {
 		log.Println("Json marshal error")
 	}
-	err = ioutil.WriteFile(filename, file, 0644)
-	if err != nil {
+
+	if err = ioutil.WriteFile(filename, file, 0644); err != nil {
 		log.Println("Json write error", err.Error())
 	}
 }
 
-// Adds message m to storage, purging oldest message if necessary
-func (rm *room) store(m Message) {
-
-	d := &rm.data
-	// Adjust pointers in circular queue
-	if len(d.Messages) == storageSize {
-		d.Head = (d.Head + 1) % storageSize
-	}
-	d.Messages[d.Idx] = m
-	d.Idx = (d.Idx + 1) % storageSize
-
-	go d.writeToStorage(storageFilename)
-}
-
 // Runs the main functions of the chatroom
 func (rm *room) run() {
+	// singleton
 	for {
 		select {
 		case conn := <-rm.addClientChan:
 			rm.addClient(conn)
 		case conn := <-rm.removeClientChan:
 			rm.removeClient(conn)
+			rm.writeToStorage(storageFilename)
 		case m := <-rm.broadcastChan:
 			rm.store(m)
 			rm.broadcast(m)
@@ -178,17 +203,18 @@ func (rm *room) run() {
 	}
 }
 
-// Handles a new incoming websocket connection
+// Handler for each client connection
 func handler(ws *websocket.Conn, rm *room) {
-	go rm.run()
-
+	go once.Do(rm.run)
 	rm.addClientChan <- ws
 
+	var m Message
 	for {
-		var m Message
 		err := websocket.JSON.Receive(ws, &m)
-		if err != nil {
-			rm.removeClient(ws)
+
+		// client exit sequence
+		if m.Text == "/exit" || err != nil {
+			rm.removeClientChan <- ws
 			return
 		}
 		rm.broadcastChan <- m
@@ -197,8 +223,7 @@ func handler(ws *websocket.Conn, rm *room) {
 
 // Connects a new room the given port number
 func connect(port string) error {
-	rm := newRoom()
-	rm.initStorage()
+	rm := initRoom()
 
 	// init http request multiplexor
 	mux := http.NewServeMux()
@@ -218,10 +243,7 @@ func connect(port string) error {
 }
 
 func main() {
-
-	err := connect(port)
-	if err != nil {
+	if err := connect(port); err != nil {
 		log.Println(err.Error())
 	}
-
 }
